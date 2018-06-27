@@ -43,24 +43,25 @@ async def get_json_response(url, timeout, headers):
             return await response.json()
 
 
-async def websocket_handler(uri, headers):
+async def websocket_handler(uri, headers, driver):
     websocket = WebSocket(uri)
     for header, value in headers.items():
         websocket.add_header(str.encode(header), str.encode(value))
 
     for msg in websocket.connect(ping_rate=5):
+        #print(msg)
         if msg.name == "text":
             message = msg.text
             message = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", message)
 
             message_data = json.loads(message)
-            logging.info(str(message_data).encode("utf-8"))
+            #logging.info(str(message_data).encode("utf-8"))
 
             if "error" in message_data and message_data["error"] == "Auth not valid":
-                logging.info(message_data)
+                #logging.info(message_data)
                 raise RuntimeError("Connection settings invalid")
             elif message_data["type"] != "interaction":
-                logging.info(message_data)
+                #logging.info(message_data)
                 if message_data["type"] == "question":
                     question_str = unidecode(message_data["question"])
                     answers = [unidecode(ans["text"]) for ans in message_data["answers"]]
@@ -69,6 +70,6 @@ async def websocket_handler(uri, headers):
                     print(f"Question {message_data['questionNumber']} out of {message_data['questionCount']}")
                     print(f"{Fore.CYAN}{question_str}\n{answers}{Style.RESET_ALL}")
                     print()
-                    await question.answer_question(question_str, answers)
+                    await question.answer_question(question_str, answers, driver)
 
     print("Socket closed")

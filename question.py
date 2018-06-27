@@ -11,7 +11,7 @@ punctuation_to_none = str.maketrans({key: None for key in "!\"#$%&\'()*+,-.:;<=>
 punctuation_to_space = str.maketrans({key: " " for key in "!\"#$%&\'()*+,-.:;<=>?@[\\]^_`{|}~�"})
 
 
-async def answer_question(question, original_answers):
+async def answer_question(question, original_answers, driver):
     print("Searching")
     start = time.time()
 
@@ -33,11 +33,14 @@ async def answer_question(question, original_answers):
     for quote in quoted:
         no_quote = no_quote.replace(f"\"{quote}\"", "1placeholder1")
 
+    # KEYWORDS ARE THOSE THAT WHICH ARE NOT STOPWORDS
     question_keywords = search.find_keywords(no_quote)
     for quote in quoted:
         question_keywords[question_keywords.index("1placeholder1")] = quote
 
     print(question_keywords)
+    driver.get(f'https://www.google.com/search?q={"+".join(question_keywords)}&ie=utf-8&oe=utf-8&client=firefox-b-1-ab')
+
     search_results = await search.search_google("+".join(question_keywords), 5)
     print(search_results)
 
@@ -53,8 +56,13 @@ async def answer_question(question, original_answers):
     # Get key nouns for Method 3
     key_nouns = set(quoted)
 
-    q_word_location = search.find_q_word_location(question_lower)
     if len(key_nouns) == 0:
+        q_word_location = -1
+        for q_word in ["what", "when", "who", "which", "whom", "where", "why", "how"]:
+            q_word_location = question_lower.find(q_word)
+            if q_word_location != -1:
+                break
+
         if q_word_location > len(question) // 2 or q_word_location == -1:
             key_nouns.update(search.find_nouns(question, num_words=5))
         else:
@@ -62,16 +70,16 @@ async def answer_question(question, original_answers):
 
         key_nouns -= {"type"}
 
-    # Add consecutive capitalised words (Thanks talentoscope!)
-    key_nouns.update(re.findall("([A-Z][a-z]+(?=\s[A-Z])(?:\s[A-Z][a-z]+)+)",
-                                " ".join([w for idx, w in enumerate(question.split(" ")) if idx != q_word_location])))
-
-    key_nouns = {noun.lower() for noun in key_nouns}
+    key_nouns = [noun.lower() for noun in key_nouns]
     print(f"Question nouns: {key_nouns}")
     answer3 = await __search_method3(list(set(question_keywords)), key_nouns, original_answers, reverse)
     print(f"{Fore.GREEN}{answer3}{Style.RESET_ALL}")
 
-    print(f"Search took {time.time() - start} seconds")
+    ### MY SEARCH METHOD IMPLEMENTATION
+    zw_answer = await __zweed4u_search(list(set(question_keywords)), answers, reverse)
+    print(f"{Fore.GREEN}{zw_answer}{Style.RESET_ALL}")
+
+    print(f"Searches took {time.time() - start} seconds")
 
 
 async def __search_method1(texts, answers, reverse):
@@ -82,7 +90,7 @@ async def __search_method1(texts, answers, reverse):
     :param reverse: True if the best answer occurs the least, False otherwise
     :return: Answer that occurs the most/least in the texts, empty string if there is a tie
     """
-    print("Running method 1")
+    print("Running method 1 (Choice with most occurrences in html with question keywords googled)")
     counts = {answer.lower(): 0 for answer in answers}
 
     for text in texts:
@@ -106,7 +114,7 @@ async def __search_method2(texts, answers, reverse):
     :param reverse: True if the best answer occurs the least, False otherwise
     :return: Answer whose keywords occur most/least in the texts
     """
-    print("Running method 2")
+    print("Running method 2 (Choice with the most answer keyword occurrences in html with question keywords googled)")
     counts = {answer: {keyword: 0 for keyword in search.find_keywords(answer)} for answer in answers}
 
     for text in texts:
@@ -131,7 +139,7 @@ async def __search_method3(question_keywords, question_key_nouns, answers, rever
     :param reverse: True if the best answer occurs the least, False otherwise
     :return: Answer whose search results contain the most keywords of the question
     """
-    print("Running method 3")
+    print("Running method 3 (Choice with the most question key words in results of the answers googled)")
     search_results = await search.multiple_search(answers, 5)
     print("Search processed")
     answer_lengths = list(map(len, search_results))
@@ -184,3 +192,41 @@ async def __search_method3(question_keywords, question_key_nouns, answers, rever
     if set(keyword_scores.values()) != {0}:
         return min(keyword_scores, key=keyword_scores.get) if reverse else max(keyword_scores, key=keyword_scores.get)
     return ""
+
+
+async def __zweed4u_search(question_keywords, answers, reverse):
+    """
+    Search google using keywords from question with each inidividual answer/choice for 3 queries
+    Parse google results html for answer in results
+    :param question_keywords: Keywords of the question
+    :param answers: List of answers
+    :param reverse: True if the best answer occurs the least, False otherwise
+    :return: Answer whose search results contain the most keywords of the question
+    """
+    print("Running ZWeed4U method")
+    search_strings = []
+    answer_strings = []
+    for answer in answers:
+        answer_strings.append(answer.replace(' ','+'))
+    for answer in answer_strings:
+        search_strings.append(f'{"+".join(question_keywords)}+{answer}')
+    search_results = await search.multiple_search(search_strings, 5)
+    print("Search processed")
+    answer_lengths = list(map(len, search_results))
+    search_results = itertools.chain.from_iterable(search_results)
+
+    texts = [x.translate(punctuation_to_none) for x in await search.get_clean_texts(search_results)]
+    counts = {answer.lower(): 0 for answer in answers}
+
+    for text in texts:
+        for answer in counts:
+            # Find answer string as presented in the answer array no spacing/padding around in text needed 
+            counts[answer] += len(re.findall(f"{answer}", text))
+
+    print(counts)
+
+    # If not all answers have count of 0 and the best value doesn't occur more than once, return the best answer
+    best_value = min(counts.values()) if reverse else max(counts.values())
+    if not all(c == 0 for c in counts.values()) and list(counts.values()).count(best_value) == 1:
+        return min(counts, key=counts.get) if reverse else max(counts, key=counts.get)
+    return f"Unable to determine 'best' choice - {counts}"

@@ -1,7 +1,9 @@
+#!/usr/bin/python3
 import asyncio
 import logging
 import os
 import time
+from selenium import webdriver
 from datetime import datetime
 
 import colorama
@@ -13,10 +15,9 @@ colorama.init()
 # Set up logging
 logging.basicConfig(filename="data.log", level=logging.INFO, filemode="w")
 
-# Read in bearer token and user ID
+# Read in bearer token
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "conn_settings.txt"), "r") as conn_settings:
     settings = conn_settings.read().splitlines()
-    settings = [line for line in settings if line != "" and line != " "]
 
     try:
         BEARER_TOKEN = settings[0].split("=")[1]
@@ -24,13 +25,13 @@ with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "conn_setting
         logging.fatal(f"Settings read error: {settings}")
         raise e
 
-print("getting")
-main_url = f"https://api-quiz.hype.space/shows/now?type="
+main_url = f"https://api-quiz.hype.space/shows/now?type=hq"
 headers = {"Authorization": f"Bearer {BEARER_TOKEN}",
-           "x-hq-client": "Android/1.3.0"}
+           "x-hq-client": "iOS/1.3.5 b88"}
 # "x-hq-stk": "MQ==",
 # "Connection": "Keep-Alive",
 # "User-Agent": "okhttp/3.8.0"}
+driver = webdriver.Chrome(f'{os.getcwd()}/chromedriver')
 
 while True:
     print()
@@ -59,4 +60,4 @@ while True:
     else:
         socket = response_data["broadcast"]["socketUrl"].replace("https", "wss")
         print(f"Show active, connecting to socket at {socket}")
-        asyncio.get_event_loop().run_until_complete(networking.websocket_handler(socket, headers))
+        asyncio.get_event_loop().run_until_complete(networking.websocket_handler(socket, headers, driver))
